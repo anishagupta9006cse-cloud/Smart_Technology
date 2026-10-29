@@ -1,0 +1,26 @@
+name: hospital_app
+description: AmbuRoute Alert AI - Hospital app (ICU beds, oxygen, incoming ambulances)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  geolocator: ^13.0.2
+  flutter_tts: ^4.2.0
+  shared_preferences: ^2.3.3
+  url_launcher: ^6.3.1
+  wakelock_plus: ^1.2.8
+  flutter_foreground_task: ^8.17.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

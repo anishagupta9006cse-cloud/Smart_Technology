@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ER Dashboard — Incoming Ambulances</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{--bg:#0b1016;--card:#131c25;--line:#24313d;--text:#eef3f7;--muted:#8ea0b1;--red:#ff4d4f;--amber:#ffb020;--green:#2ecc71}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:12px 18px;background:#0e4f8a}
+  header h1{margin:0;font-size:20px;letter-spacing:1px} header .sp{flex:1}
+  main{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;padding:14px;height:calc(100vh - 56px)}
+  #map{border-radius:14px;border:1px solid var(--line)}
+  #list{overflow:auto}
+  .amb{background:var(--card);border:1px solid var(--line);border-left:8px solid #455a64;border-radius:14px;padding:14px;margin-bottom:12px}
+  .amb.red{border-left-color:var(--red);animation:pulse 1.2s infinite} .amb.yellow{border-left-color:var(--amber)} .amb.green{border-left-color:var(--green)}
+  @keyframes pulse{50%{box-shadow:0 0 0 4px rgba(255,77,79,.35)}}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  .eta{font-size:34px;font-weight:900}
+  .vit{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+  .vit div{background:#0d151d;border-radius:10px;padding:8px;text-align:center} .vit b{display:block;font-size:22px} .vit span{font-size:11px;color:var(--muted)}
+  .flags{color:var(--red);font-weight:700;margin-top:8px}
+  .muted{color:var(--muted);font-size:13px}
+  button{border:0;border-radius:10px;padding:10px 14px;font-weight:800;color:#fff;cursor:pointer;margin:8px 6px 0 0}
+  .g{background:#2e7d32}.r{background:#c62828}.o{background:#ef6c00}
+  canvas{width:100%;height:60px;background:#0d151d;border-radius:8px;margin-top:8px}
+  #banner{display:none;padding:10px 18px;background:var(--red);font-weight:800;text-align:center}
+  @media(max-width:800px){main{grid-template-columns:1fr;height:auto}#map{height:300px}}
+  .dark-tiles{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9)}
+</style>
+</head>
+<body>
+<header><div style="font-size:26px">🏥</div><div><h1 id="hname">ER DASHBOARD</h1><div class="muted" style="color:#cfe3f7">Live incoming ambulances · tele-triage</div></div><div class="sp"></div><button class="o" id="snd" onclick="enableSound()">🔔 Enable sound</button></header>
+<div id="banner"></div>
+<main><div id="map"></div><div id="list"><div class="muted">Loading...</div></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const HID = decodeURIComponent(location.pathname.split('/').pop());
+const qs = new URLSearchParams(location.search);
+const CODE = qs.get('code') || localStorage.getItem('amb_code') || 'Anisha_9631';
+const H = { 'Content-Type': 'application/json', 'x-access-code': CODE };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const map = L.map('map').setView([25.59, 85.13], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, className: 'dark-tiles', attribution: '© OpenStreetMap' }).addTo(map);
+const layer = L.layerGroup().addTo(map);
+let hosp = null, sound = false, known = new Set(), history = {}, fitted = false;
+function enableSound() { sound = true; document.getElementById('snd').textContent = '🔔 Sound ON'; say('Sound alerts are on'); }
+function say(t) { if (!sound || !window.speechSynthesis) return; const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; speechSynthesis.speak(u); }
+async function j(p, opt = {}) { const r = await fetch(p, { headers: H, ...opt }); const x = await r.json().catch(() => ({})); if (!r.ok) throw new Error(x.error || r.status); return x; }
+async function reply(tripId, response) { await j(`/api/hospitals/${HID}/respond`, { method: 'POST', body: JSON.stringify({ tripId, response }) }); load(); }
+function spark(id, arr) {
+  const c = document.getElementById(id); if (!c) return; const ctx = c.getContext('2d'); c.width = c.clientWidth; c.height = 60;
+  ctx.clearRect(0, 0, c.width, 60); const pts = arr.filter((x) => x != null); if (pts.length < 2) return;
+  const mn = Math.min(...pts) - 5, mx = Math.max(...pts) + 5; ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 2; ctx.beginPath();
+  pts.forEach((v, i) => { const x = (i / (pts.length - 1)) * c.width, y = 60 - ((v - mn) / (mx - mn)) * 56 - 2; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+}
+async function load() {
+  try {
+    if (!hosp) { hosp = (await j('/api/hospitals/' + HID)).hospital; document.getElementById('hname').textContent = hosp.name.toUpperCase() + ' — ER'; map.setView([hosp.lat, hosp.lng], 13); }
+    const d = await j(`/api/hospitals/${HID}/incoming`);
+    layer.clearLayers();
+    L.marker([hosp.lat, hosp.lng], { icon: L.divIcon({ html: '<div style="font-size:26px">🏥</div>', className: '', iconSize: [28, 28] }) }).addTo(layer);
+    const cards = [];
+    let anyRed = false;
+    for (const a of d.ambulances) {
+      if (!known.has(a.tripId)) { known.add(a.tripId); say(`New ambulance ${a.ambulanceId} coming. Arrives in ${Math.max(1, Math.round((a.etaSec || 0) / 60))} minutes.`); }
+      const v = a.vitals; const lvl = v ? v.triage.level : 'none'; if (lvl === 'red') anyRed = true;
+      try { const h = await j(`/api/trips/${a.tripId}/vitals`); history[a.tripId] = h.history.map((x) => x.hr); } catch (_) {}
+      L.marker([a.lat, a.lng], { icon: L.divIcon({ html: '<div style="font-size:28px">🚑</div>', className: '', iconSize: [30, 30] }) }).bindTooltip(a.ambulanceId, { permanent: true, direction: 'top' }).addTo(layer);
+      cards.push(`<div class="amb ${lvl}"><div class="top"><div><b style="font-size:20px">🚑 ${esc(a.ambulanceId)}</b> ${a.priority === 'critical' ? '<b style="color:var(--red)">CRITICAL</b>' : ''}<div class="muted">${esc(a.emergencyType || 'general').toUpperCase()} · ${(a.remaining / 1000).toFixed(1)} km · ${a.speedKmh} km/h</div></div><div class="eta">${Math.max(0, Math.round((a.etaSec || 0) / 60))}<span class="muted"> min</span></div></div>
+        ${a.patient ? `<div class="muted">Patient: ${a.patient.age ?? '?'} yrs ${esc(a.patient.gender || '')} · Blood ${esc(a.patient.bloodGroup || '?')} · ${esc(a.patient.complaint || '')}</div>` : ''}
+        ${a.booking ? `<div class="muted">Bed booked: ${esc(a.booking.bedType)} — ${esc(a.booking.patientBrief || '')}</div>` : ''}
+        ${v ? `<div class="vit"><div><b>${v.hr ?? '-'}</b><span>HEART RATE</span></div><div><b>${v.spo2 ?? '-'}%</b><span>SpO2</span></div><div><b>${v.bpSys ?? '-'}/${v.bpDia ?? '-'}</b><span>BP</span></div><div><b>${esc((v.ecg || '-').toUpperCase())}</b><span>ECG</span></div></div>
+          ${v.triage.flags.length ? `<div class="flags">⚠ ${esc(v.triage.flags.join(' · '))}</div>` : '<div class="muted" style="margin-top:6px">Vitals stable</div>'}
+          <canvas id="c-${a.tripId}"></canvas><div class="muted">Heart-rate trend · source: ${esc(v.source)} · ${Math.round((Date.now() - v.at) / 1000)} s ago</div>` : '<div class="muted" style="margin-top:8px">No vitals sent yet</div>'}
+        <div>${a.reply ? `<div class="muted" style="margin-top:8px">Your reply: <b>${esc(a.reply.text)}</b></div>` : ''}
+        <button class="g" onclick="reply('${a.tripId}','accepted')">BED READY</button><button class="r" onclick="reply('${a.tripId}','no_bed')">NO BED</button><button class="o" onclick="reply('${a.tripId}','need_info')">PLEASE CALL</button></div></div>`);
+    }
+    document.getElementById('list').innerHTML = cards.join('') || '<div class="amb"><b>No ambulance coming right now.</b><div class="muted">This screen updates every 3 seconds.</div></div>';
+    for (const a of d.ambulances) spark('c-' + a.tripId, history[a.tripId] || []);
+    const b = document.getElementById('banner'); b.style.display = anyRed ? 'block' : 'none'; b.textContent = anyRed ? '🚨 CRITICAL PATIENT INCOMING — PREPARE TRAUMA TEAM' : '';
+    if (!fitted && d.ambulances.length) { map.fitBounds([[hosp.lat, hosp.lng], ...d.ambulances.map((a) => [a.lat, a.lng])], { padding: [40, 40] }); fitted = true; }
+  } catch (e) { document.getElementById('list').innerHTML = '<div class="amb">' + esc(e.message) + '</div>'; }
+}
+load(); setInterval(load, 3000);
+</script>
+</body>
+</html>

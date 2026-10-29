@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Emergency SOS — Call an Ambulance</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#fff5f5;color:#1b1b1f}
+  header{background:#c62828;color:#fff;padding:14px 18px;font-weight:800;letter-spacing:1px}
+  main{max-width:480px;margin:0 auto;padding:16px}
+  #sosBtn{width:220px;height:220px;border-radius:50%;border:0;background:radial-gradient(circle,#ff5252,#b71c1c);color:#fff;font-size:44px;font-weight:900;display:block;margin:20px auto;box-shadow:0 0 0 12px rgba(198,40,40,.15),0 0 0 24px rgba(198,40,40,.08);cursor:pointer}
+  select,input,textarea{width:100%;padding:12px;border:1px solid #e0c0c0;border-radius:10px;font-size:16px;margin:6px 0}
+  .card{background:#fff;border-radius:14px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,.08);margin-top:12px}
+  #map{height:260px;border-radius:12px;margin-top:10px;display:none}
+  .muted{color:#666;font-size:13px} .big{font-size:22px;font-weight:800}
+  a.call{display:block;text-align:center;background:#2e7d32;color:#fff;padding:12px;border-radius:10px;text-decoration:none;font-weight:800;margin-top:10px}
+</style>
+</head>
+<body>
+<header>🆘 EMERGENCY SOS — AMBUROUTE</header>
+<main>
+  <div id="form">
+    <p class="muted">Press SOS. Your location is sent to the nearest ambulances. No app or login needed.</p>
+    <select id="type"><option value="trauma">Road accident / injury</option><option value="cardiac">Chest pain / heart attack</option><option value="stroke">Stroke (face drooping, weak arm)</option><option value="burn">Burn</option><option value="maternity">Pregnancy / delivery</option><option value="pediatric">Child emergency</option><option value="general">Other emergency</option></select>
+    <input id="phone" type="tel" placeholder="Your mobile number (optional, only the ambulance sees it)">
+    <textarea id="note" rows="2" placeholder="What happened? (optional)"></textarea>
+    <button id="sosBtn" onclick="send()">SOS</button>
+    <a class="call" href="tel:108">📞 Or call 108 now</a>
+  </div>
+  <div id="status" class="card" style="display:none"><div id="st" class="big">Sending...</div><div id="sub" class="muted"></div></div>
+  <div id="map"></div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let id = new URLSearchParams(location.search).get('id'), map, mk, me;
+function show(t, s) { document.getElementById('status').style.display = 'block'; document.getElementById('st').textContent = t; document.getElementById('sub').textContent = s || ''; }
+function send() {
+  if (!navigator.geolocation) return show('Location not available', 'Please call 108.');
+  show('Finding your location...');
+  navigator.geolocation.getCurrentPosition(async (p) => {
+    try {
+      const r = await fetch('/api/sos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: p.coords.latitude, lng: p.coords.longitude, type: type.value, note: note.value, phone: phone.value }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error);
+      id = j.id; history.replaceState(null, '', '/sos?id=' + id); document.getElementById('form').style.display = 'none'; poll(); setInterval(poll, 4000);
+    } catch (e) { show('Could not send', e.message + ' — please call 108.'); }
+  }, () => show('Location permission denied', 'Allow location and try again, or call 108.'), { enableHighAccuracy: true, timeout: 15000 });
+}
+async function poll() {
+  try {
+    const r = await fetch('/api/sos/' + id); const j = await r.json(); if (!r.ok) throw new Error(j.error);
+    const s = j.sos; me = [s.lat, s.lng];
+    if (!map) { document.getElementById('map').style.display = 'block'; map = L.map('map').setView(me, 15); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map); L.marker(me).addTo(map).bindTooltip('You', { permanent: true }); }
+    if (s.status === 'open') show('🔴 SOS sent. Waiting for an ambulance...', 'Stay where you are. Keep this page open.');
+    else if (j.ambulance) {
+      const a = j.ambulance;
+      show('🚑 Ambulance ' + s.ambulanceId + ' is coming', a.etaSec != null ? 'Arrives in about ' + Math.max(1, Math.round(a.etaSec / 60)) + ' min · ' + (a.remaining / 1000).toFixed(1) + ' km' : 'The ambulance accepted your SOS.');
+      const ll = [a.lat, a.lng]; if (!mk) mk = L.marker(ll, { icon: L.divIcon({ html: '<div style="font-size:28px">🚑</div>', className: '', iconSize: [30, 30] }) }).addTo(map); else mk.setLatLng(ll);
+      map.fitBounds([me, ll], { padding: [40, 40] });
+    } else show('✅ Ambulance ' + s.ambulanceId + ' accepted', 'It is starting now. Keep this page open.');
+  } catch (e) { show('SOS link expired', e.message); }
+}
+if (id) { document.getElementById('form').style.display = 'none'; poll(); setInterval(poll, 4000); }
+</script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Live Ambulance Tracking</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;color:#1b1b1f}
+  #wrap{display:flex;flex-direction:column;height:100%}
+  header{background:#c62828;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px}
+  header .t{font-weight:800;letter-spacing:1px}
+  header .s{font-size:12px;opacity:.9}
+  #map{flex:1;min-height:200px}
+  #card{background:#fff;padding:14px 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -4px 14px rgba(0,0,0,.12)}
+  #status{font-weight:800;font-size:17px;margin-bottom:8px}
+  .ok{color:#2e7d32}.warn{color:#ef6c00}.bad{color:#c62828}
+  .row{display:flex;gap:10px}
+  .box{flex:1;background:#f4f5f7;border-radius:10px;padding:10px;text-align:center}
+  .box b{display:block;font-size:20px}
+  .box span{font-size:11px;color:#666}
+  #dest{margin-top:10px;font-size:14px}
+  #upd{margin-top:6px;font-size:11px;color:#777}
+  .crit{display:inline-block;background:#c62828;color:#fff;border-radius:6px;padding:2px 8px;font-size:12px;margin-left:6px}
+  .amb{font-size:28px;line-height:28px;text-align:center}
+  #err{display:none;padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header><div style="font-size:26px">🚑</div><div><div class="t">LIVE AMBULANCE TRACKING</div><div class="s" id="amb">Loading...</div></div></header>
+  <div id="err"></div>
+  <div id="map"></div>
+  <div id="card">
+    <div id="status">Connecting...</div>
+    <div class="row">
+      <div class="box"><b id="eta">--</b><span>ARRIVES IN</span></div>
+      <div class="box"><b id="dist">--</b><span>DISTANCE LEFT</span></div>
+      <div class="box"><b id="spd">--</b><span>SPEED</span></div>
+    </div>
+    <div id="dest"></div>
+    <div id="upd"></div>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  var token = location.pathname.split('/').pop();
+  var map = L.map('map', { zoomControl: true }).setView([22.97, 78.65], 5);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  var ambIcon = L.divIcon({ html: '<div class="amb">🚑</div>', className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
+  var hospIcon = L.divIcon({ html: '<div class="amb">🏥</div>', className: '', iconSize: [30, 30], iconAnchor: [15, 30] });
+  var ambM = null, destM = null, line = null, first = true, timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmtEta(s) {
+    if (s == null) return '--';
+    var m = Math.round(s / 60);
+    if (m < 1) return '< 1 min';
+    if (m < 60) return m + ' min';
+    return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+  }
+  function fmtDist(m) {
+    if (m == null) return '--';
+    return m < 1000 ? m + ' m' : (m / 1000).toFixed(1) + ' km';
+  }
+  function showError(msg) {
+    clearInterval(timer);
+    $('err').style.display = 'block';
+    $('err').textContent = msg;
+    $('map').style.display = 'none';
+    $('card').style.display = 'none';
+    $('amb').textContent = '';
+  }
+
+  function render(d) {
+    $('amb').textContent = 'Ambulance ' + d.ambulanceId;
+    var st = $('status');
+    var label = 'On the way to the hospital', cls = 'ok';
+    if (d.status === 'completed') { label = 'Reached the hospital'; cls = 'ok'; }
+    else if (d.status === 'stopped') { label = 'Trip has ended'; cls = 'warn'; }
+    else if (d.status === 'off_route') { label = 'Taking a different road'; cls = 'warn'; }
+    else if (d.gpsAgeSec > 60) { label = 'Waiting for GPS signal...'; cls = 'warn'; }
+    st.className = cls;
+    st.innerHTML = label + (d.critical ? '<span class="crit">EMERGENCY</span>' : '');
+    var live = d.status === 'ok' || d.status === 'off_route';
+    $('eta').textContent = live ? fmtEta(d.etaSec) : '--';
+    $('dist').textContent = live ? fmtDist(d.remaining) : '--';
+    $('spd').textContent = live ? d.speedKmh + ' km/h' : '--';
+    $('dest').textContent = 'Destination: ' + d.destination;
+    $('upd').textContent = 'Updated ' + (d.gpsAgeSec < 5 ? 'just now' : d.gpsAgeSec + ' seconds ago') + ' · refreshes automatically';
+
+    var p = [d.lat, d.lng];
+    if (!ambM) ambM = L.marker(p, { icon: ambIcon }).addTo(map); else ambM.setLatLng(p);
+    if (!destM) destM = L.marker([d.dest.lat, d.dest.lng], { icon: hospIcon }).addTo(map);
+    if (d.route && d.route.length > 1) {
+      if (!line) line = L.polyline(d.route, { color: '#1565C0', weight: 5, opacity: .75 }).addTo(map);
+      else line.setLatLngs(d.route);
+    }
+    if (first) {
+      first = false;
+      map.fitBounds(L.latLngBounds([p, [d.dest.lat, d.dest.lng]]).pad(0.3));
+    }
+    if (d.status === 'completed' || d.status === 'stopped') clearInterval(timer);
+  }
+
+  function load() {
+    fetch('/api/track/' + encodeURIComponent(token), { cache: 'no-store' })
+      .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+      .then(function (x) {
+        if (x.s === 404) return showError('This tracking link has expired or is not valid.');
+        if (x.s === 429) return; // too many requests: try again on the next tick
+        if (!x.j.ok) return;
+        render(x.j);
+      })
+      .catch(function () { $('upd').textContent = 'No internet. Trying again...'; });
+  }
+  load();
+  timer = setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

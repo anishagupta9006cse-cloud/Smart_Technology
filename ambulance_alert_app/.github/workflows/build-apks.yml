@@ -1,0 +1,62 @@
+name: Build Driver + Police + Hospital APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # appid = fixed Android app ID (device / package ID) of EACH app.
+          # Every app has its own ID, so Driver, Police and Hospital install side by side on one phone.
+          - app: driver_app
+            label: "AmbuRoute Driver"
+            appid: com.amburoute.driver
+          - app: police_app
+            label: "AmbuRoute Police"
+            appid: com.amburoute.police
+          - app: hospital_app
+            label: "AmbuRoute Hospital"
+            appid: com.amburoute.hospital
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create android folder and add permissions
+        working-directory: ${{ matrix.app }}
+        run: |
+          cp -r lib /tmp/lib_backup
+          cp pubspec.yaml /tmp/pubspec_backup.yaml
+          flutter create --platforms=android --org com.amburoute --project-name ${{ matrix.app }} .
+          rm -rf lib test
+          cp -r /tmp/lib_backup lib
+          cp /tmp/pubspec_backup.yaml pubspec.yaml
+          python3 ../tools/patch_android.py android/app/src/main/AndroidManifest.xml "${{ matrix.label }}" "${{ matrix.appid }}"
+
+      - name: Packages download
+        working-directory: ${{ matrix.app }}
+        run: flutter pub get
+
+      - name: APK build
+        working-directory: ${{ matrix.app }}
+        run: flutter build apk --release
+
+      - name: APK upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-apk-run${{ github.run_number }}
+          path: ${{ matrix.app }}/build/app/outputs/flutter-apk/app-release.apk
