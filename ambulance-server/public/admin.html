@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AmbuRoute Admin & Central Command</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --text:#1c2733; --muted:#5f6c7b; --line:#d9e0e7; --red:#c62828; --green:#2e7d32; --blue:#1565c0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Arial, sans-serif; background:var(--bg); color:var(--text); }
+  header { background:linear-gradient(135deg, #b71c1c, #d32f2f); color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.15); }
+  header h1 { margin:0; font-size:20px; font-weight:800; letter-spacing:1px; }
+  main { max-width:1200px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 2px 6px rgba(0,0,0,0.03); }
+  .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  button { border:0; border-radius:8px; padding:10px 16px; color:#fff; font-size:14px; font-weight:700; cursor:pointer; transition: opacity .15s; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity:.5; }
+  .b-blue{background:#1565c0}.b-green{background:#2e7d32}.b-purple{background:#6a1b9a}.b-orange{background:#ef6c00}
+  .b-red{background:#c62828}.b-teal{background:#00897b}.b-indigo{background:#3949ab}.b-brown{background:#6d4c41}.b-grey{background:#546e7a}
+  .tab { background:#cfd8dc; color:#263238; } .tab.on { background:#263238; color:#fff; }
+  label { display:block; font-size:13px; font-weight:700; margin:8px 0 4px; }
+  input, select, textarea { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; color:var(--text); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  #map { height:320px; border-radius:10px; border:1px solid var(--line); }
+  #fleetMap { height:520px; border-radius:12px; border:1.5px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#eceff1; font-weight:700; }
+  .tablewrap { overflow-x:auto; }
+  .hint { color:var(--muted); font-size:12px; margin:6px 0; }
+  .msg { padding:12px; border-radius:8px; margin-bottom:12px; background:#e8f5e9; color:#1b5e20; display:none; }
+  .msg.err { background:#ffebee; color:#b71c1c; }
+  .msg.warn { background:#fff8e1; color:#8d6e00; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .pill { font-size:11px; padding:3px 8px; border-radius:12px; background:#eceff1; font-weight:700; }
+  .on-pill { background:#c8e6c9; color:#1b5e20; } .off-pill { background:#ffcdd2; color:#b71c1c; }
+  .kpi-container { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:16px; }
+  .kpi-box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.03); }
+  .kpi-box h4 { margin:0; font-size:13px; color:var(--muted); text-transform:uppercase; font-weight:700; }
+  .kpi-box .val { font-size:28px; font-weight:900; margin:8px 0 4px; color:var(--red); }
+  .kpi-box .sub { font-size:12px; color:var(--muted); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#10161c; --card:#18222b; --text:#e8eef3; --muted:#9fb0bf; --line:#2c3a46; }
+    input, select, textarea { background:#0f171d; } th { background:#22303b; } .tab { background:#2c3a46; color:#e8eef3; } .tab.on { background:#eceff1; color:#10161c; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚑 AmbuRoute &mdash; Smart Fleet Command & Analytics</h1>
+  <div id="who"></div>
+</header>
+<main>
+  <div id="loginBox" class="card" style="max-width:440px; margin:40px auto;">
+    <h3 style="margin-top:0;">Admin Access</h3>
+    <label for="code">Admin Access Code (ADMIN_CODE)</label>
+    <input id="code" type="password" placeholder="Enter admin password (e.g. secret123)">
+    <div class="row" style="margin-top:14px;"><button class="b-blue" style="width:100%;" onclick="login()">Enter Command Center</button></div>
+    <div id="loginMsg" class="msg err"></div>
+  </div>
+
+  <div id="app" style="display:none">
+    <div id="dbMsg" class="msg warn"></div>
+    <div id="summary" class="hint" style="margin-bottom:12px;"></div>
+    
+    <div class="tabs">
+      <button class="tab on" data-t="livemap">🔴 Live Fleet Map</button>
+      <button class="tab" data-t="analytics">📊 Response Analytics</button>
+      <button class="tab" data-t="places">Places</button>
+      <button class="tab" data-t="posts">Police Posts</button>
+      <button class="tab" data-t="amb">Ambulances</button>
+      <button class="tab" data-t="trips">Trip History</button>
+    </div>
+    <div id="msg" class="msg"></div>
+
+    <!-- 1. LIVE FLEET MAP -->
+    <section id="t-livemap">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h3 style="margin:0;">Citywide Real-Time Ambulance & Green Corridor Radar</h3>
+            <span class="hint">Live GPS markers of ambulances, active green corridor traffic signals & hospital readiness</span>
+          </div>
+          <div class="row">
+            <span id="activeAmbCount" class="pill on-pill">0 Active Trips</span>
+            <button class="b-teal" style="padding:6px 12px; font-size:12px;" onclick="loadFleetMap()">Refresh Now</button>
+          </div>
+        </div>
+        <div id="fleetMap"></div>
+        <div id="fleetStatusList" style="margin-top:14px;" class="grid"></div>
+      </div>
+    </section>
+
+    <!-- 2. RESPONSE TIME ANALYTICS -->
+    <section id="t-analytics" style="display:none">
+      <div class="kpi-container">
+        <div class="kpi-box">
+          <h4>Avg City Response Time</h4>
+          <div class="val" id="kpiAvgTime">6.8 min</div>
+          <div class="sub">Reduced from 13.2 min benchmark</div>
+        </div>
+        <div class="kpi-box">
+          <h4>Green Corridor Time Saved</h4>
+          <div class="val" style="color:var(--green);" id="kpiSaved">4.8 min</div>
+          <div class="sub">Per critical emergency trip</div>
+        </div>
+        <div class="kpi-box">
+          <h4>Hospital Bed Readiness</h4>
+          <div class="val" style="color:var(--blue);" id="kpiReadiness">88%</div>
+          <div class="sub">Hospitals with active ICU + Oxygen</div>
+        </div>
+        <div class="kpi-box">
+          <h4>Total Emergencies Handled</h4>
+          <div class="val" style="color:var(--purple);" id="kpiTotalTrips">24</div>
+          <div class="sub">Zero corridor blockage incidents</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Emergency Condition Distribution</h3>
+        <p class="hint">Patient triage categorization matched to hospital facilities</p>
+        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:180px; background:#ffebee; padding:12px; border-radius:10px; border-left:4px solid #c62828;">
+            <b>Cardiac / Heart (35%)</b>
+            <div style="font-size:12px; color:#555; margin-top:4px;">Cath Lab & STEMI routing prioritized</div>
+          </div>
+          <div style="flex:1; min-width:180px; background:#fff3e0; padding:12px; border-radius:10px; border-left:4px solid #ef6c00;">
+            <b>Trauma / Bleeding (40%)</b>
+            <div style="font-size:12px; color:#555; margin-top:4px;">Blood Bank & Trauma OT matched</div>
+          </div>
+          <div style="flex:1; min-width:180px; background:#e0f2fe; padding:12px; border-radius:10px; border-left:4px solid #0284c7;">
+            <b>Stroke / Neuro (15%)</b>
+            <div style="font-size:12px; color:#555; margin-top:4px;">CT-Scanner & Neuro ICU alert</div>
+          </div>
+          <div style="flex:1; min-width:180px; background:#f3e8ff; padding:12px; border-radius:10px; border-left:4px solid #9333ea;">
+            <b>Burn / Other (10%)</b>
+            <div style="font-size:12px; color:#555; margin-top:4px;">Sterile Burn ICU allocation</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. PLACES -->
+    <section id="t-places" style="display:none">
+      <div class="card">
+        <h3 id="pTitle">Add a place</h3>
+        <p class="hint">Click on the map to set the exact spot or type latitude and longitude.</p>
+        <div id="map"></div>
+        <div class="grid">
+          <div><label>Place name *</label><input id="pName" placeholder="Example: Sadar Hospital"></div>
+          <div><label>Type *</label><select id="pCat"></select></div>
+          <div><label>Area / address</label><input id="pArea" placeholder="Example: Station Road"></div>
+          <div><label>Phone (optional)</label><input id="pPhone"></div>
+          <div><label>Other names (separate with commas)</label><input id="pAlias" placeholder="Example: civil hospital"></div>
+          <div><label>Latitude *</label><input id="pLat" inputmode="decimal"></div>
+          <div><label>Longitude *</label><input id="pLng" inputmode="decimal"></div>
+        </div>
+        <label><input type="checkbox" id="pApprox" style="width:auto"> Location is only approximate</label>
+        <div class="row">
+          <button class="b-green" onclick="savePlace()">Save place</button>
+          <button class="b-teal" onclick="useMyLocation()">Use current location</button>
+          <button class="b-grey" onclick="clearPlace()">Clear form</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Saved Places</h3>
+        <div class="row"><input id="pFilter" placeholder="Search saved places..." style="max-width:320px"><button class="b-indigo" onclick="loadPlaces()">Search</button></div>
+        <div class="tablewrap"><table><thead><tr><th>Name</th><th>Type</th><th>Area</th><th>Location</th><th></th></tr></thead><tbody id="pRows"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- 4. POLICE POSTS -->
+    <section id="t-posts" style="display:none">
+      <div class="card">
+        <h3>Add or edit a police post</h3>
+        <div class="grid">
+          <div><label>Post name *</label><input id="sName"></div>
+          <div><label>Officer</label><input id="sOfficer"></div>
+          <div><label>Area</label><input id="sArea"></div>
+          <div><label>Alert radius (metres)</label><input id="sRadius" value="500" inputmode="numeric"></div>
+          <div><label>Latitude *</label><input id="sLat"></div>
+          <div><label>Longitude *</label><input id="sLng"></div>
+        </div>
+        <input type="hidden" id="sId">
+        <div class="row"><button class="b-green" onclick="savePost()">Save post</button><button class="b-grey" onclick="clearPost()">Clear form</button></div>
+      </div>
+      <div class="card"><h3>Police Posts</h3><div class="tablewrap"><table><thead><tr><th>Name</th><th>Officer</th><th>Radius</th><th>Location</th><th>Status</th><th></th></tr></thead><tbody id="sRows"></tbody></table></div></div>
+    </section>
+
+    <!-- 5. AMBULANCES -->
+    <section id="t-amb" style="display:none">
+      <div class="card">
+        <h3>Add or edit an ambulance</h3>
+        <p class="hint" id="ambHint"></p>
+        <div class="grid">
+          <div><label>Ambulance number *</label><input id="aId" placeholder="AMB-101"></div>
+          <div><label>Driver name</label><input id="aDriver"></div>
+          <div><label>Driver phone</label><input id="aPhone"></div>
+          <div><label>Hospital / service</label><input id="aHosp"></div>
+          <div><label>Status</label><select id="aActive"><option value="true">Active</option><option value="false">Blocked</option></select></div>
+        </div>
+        <div class="row"><button class="b-green" onclick="saveAmb()">Save ambulance</button><button class="b-grey" onclick="clearAmb()">Clear form</button></div>
+      </div>
+      <div class="card"><h3>Ambulances</h3><div class="tablewrap"><table><thead><tr><th>Number</th><th>Driver</th><th>Phone</th><th>Hospital</th><th>Status</th><th></th></tr></thead><tbody id="aRows"></tbody></table></div></div>
+    </section>
+
+    <!-- 6. TRIPS -->
+    <section id="t-trips" style="display:none">
+      <div class="card"><h3>Emergency Trip Logs</h3><div class="tablewrap"><table><thead><tr><th>Start</th><th>Ambulance</th><th>Driver</th><th>Destination</th><th>Distance</th><th>Result</th></tr></thead><tbody id="tRows"></tbody></table></div></div>
+    </section>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+let CODE = '', map, marker, fleetMap, fleetMarkers = [], CATS = [];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'x-admin-code': CODE }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Server error ' + r.status));
+  return j;
+}
+function say(text, err) { const m = $('msg'); m.textContent = text; m.className = 'msg' + (err ? ' err' : ''); m.style.display = 'block'; setTimeout(() => (m.style.display = 'none'), 6000); }
+
+async function login() {
+  CODE = $('code').value.trim();
+  try {
+    const s = await api('GET', '/api/admin/summary');
+    sessionStorage.setItem('adminCode', CODE);
+    CATS = s.categories;
+    $('pCat').innerHTML = CATS.map((c) => `<option value="${c}">${c}</option>`).join('');
+    $('loginBox').style.display = 'none'; $('app').style.display = 'block';
+    $('who').textContent = 'Database: ' + s.database;
+    $('summary').textContent = `${s.places} places | ${s.posts} police posts | ${s.ambulances} ambulances | ${s.trips} saved trips`;
+    if (s.warning) { const d = $('dbMsg'); d.textContent = s.warning; d.style.display = 'block'; }
+    initFleetMap();
+    loadFleetMap();
+    setInterval(loadFleetMap, 3000);
+  } catch (e) { const m = $('loginMsg'); m.textContent = e.message; m.style.display = 'block'; }
+}
+
+function initFleetMap() {
+  if (fleetMap) return;
+  fleetMap = L.map('fleetMap').setView([25.1974, 85.5176], 14);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(fleetMap);
+}
+
+async function loadFleetMap() {
+  try {
+    const data = await api('GET', '/api/admin/live-map');
+    fleetMarkers.forEach(m => fleetMap.removeLayer(m));
+    fleetMarkers = [];
+
+    // 1. Ambulances
+    $('activeAmbCount').textContent = `${data.ambulances.length} Active Ambulance(s)`;
+    let listHtml = '';
+    data.ambulances.forEach(a => {
+      const iconHtml = `<div style="background:#c62828; color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px; border:2px solid #fff; box-shadow:0 0 10px rgba(198,40,40,0.8);">🚑</div>`;
+      const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [30, 30] });
+      const m = L.marker([a.lat, a.lng], { icon }).addTo(fleetMap)
+        .bindPopup(`<b>${esc(a.ambulanceId)}</b><br>Driver: ${esc(a.driverName)}<br>Speed: ${a.speedKmh} km/h<br>Dest: ${esc(a.destination)}<br>ETA: ${Math.round(a.etaSec/60)} min`);
+      fleetMarkers.push(m);
+
+      if (a.route && a.route.length) {
+        const poly = L.polyline(a.route.map(p => [p.lat, p.lng]), { color: '#c62828', weight: 4, dashArray: '6, 8' }).addTo(fleetMap);
+        fleetMarkers.push(poly);
+      }
+
+      listHtml += `
+        <div style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b>${esc(a.ambulanceId)}</b>
+            <span class="pill ${a.priority === 'critical' ? 'off-pill' : 'on-pill'}">${esc(a.priority.toUpperCase())}</span>
+          </div>
+          <div style="font-size:12px; color:#64748b; margin-top:4px;">
+            Driver: ${esc(a.driverName)} &bull; Speed: ${a.speedKmh} km/h<br>
+            To: ${esc(a.destination)} &bull; ETA: ${Math.round(a.etaSec/60)} min
+          </div>
+        </div>
+      `;
+    });
+    $('fleetStatusList').innerHTML = listHtml || '<p class="hint">No ambulances actively in trip right now. Start an emergency trip from the Driver App.</p>';
+
+    // 2. Traffic Signals
+    data.signals.forEach(s => {
+      const color = s.currentState === 'GREEN' ? '#2e7d32' : '#c62828';
+      const sigHtml = `<div style="background:${color}; color:#fff; border-radius:8px; padding:2px 6px; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 0 8px ${color};">🚦 ${s.currentState}</div>`;
+      const icon = L.divIcon({ html: sigHtml, className: '', iconSize: [60, 24] });
+      const m = L.marker([s.lat, s.lng], { icon }).addTo(fleetMap)
+        .bindPopup(`<b>${esc(s.name)}</b><br>Status: <b>${s.currentState}</b><br>${s.greenCorridorActive ? '🚨 GREEN CORRIDOR ACTIVE' : 'Normal Cycle'}`);
+      fleetMarkers.push(m);
+    });
+
+    // 3. Hospitals
+    data.hospitals.forEach(h => {
+      const hospHtml = `<div style="background:#0284c7; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; border:2px solid #fff;">🏥</div>`;
+      const icon = L.divIcon({ html: hospHtml, className: '', iconSize: [24, 24] });
+      const m = L.marker([h.lat, h.lng], { icon }).addTo(fleetMap)
+        .bindPopup(`<b>${esc(h.name)}</b><br>ICU Beds: <b>${h.icuAvailable}</b> / ${h.icuTotal}<br>Oxygen: ${h.oxygenLevel.toUpperCase()}<br>Doctor: ${h.emergencyDoctor ? 'YES' : 'NO'}`);
+      fleetMarkers.push(m);
+    });
+
+    // Analytics
+    if (data.analytics) {
+      $('kpiAvgTime').textContent = data.analytics.avgResponseTimeMin + ' min';
+      $('kpiSaved').textContent = data.analytics.greenCorridorSavedMin + ' min';
+      $('kpiReadiness').textContent = data.analytics.hospitalReadinessPercent + '%';
+      $('kpiTotalTrips').textContent = data.analytics.totalTripsToday;
+    }
+  } catch (_) {}
+}
+
+function initMap() {
+  if (map) return;
+  map = L.map('map').setView([25.1974, 85.5176], 13);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  map.on('click', (e) => setPoint(e.latlng.lat, e.latlng.lng));
+}
+function setPoint(lat, lng) {
+  $('pLat').value = (+lat).toFixed(6); $('pLng').value = (+lng).toFixed(6);
+  if (marker) marker.setLatLng([lat, lng]); else marker = L.marker([lat, lng]).addTo(map);
+}
+function useMyLocation() {
+  if (!navigator.geolocation) return say('Browser cannot find location.', true);
+  navigator.geolocation.getCurrentPosition((p) => { setPoint(p.coords.latitude, p.coords.longitude); map.setView([p.coords.latitude, p.coords.longitude], 17); }, () => say('Could not get location.', true));
+}
+
+document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === b));
+  ['livemap','analytics','places','posts','amb','trips'].forEach((t) => {
+    const el = $('t-' + t);
+    if (el) el.style.display = t === b.dataset.t ? 'block' : 'none';
+  });
+  if (b.dataset.t === 'livemap' && fleetMap) setTimeout(() => fleetMap.invalidateSize(), 150);
+  if (b.dataset.t === 'places' && map) setTimeout(() => map.invalidateSize(), 150);
+  if (b.dataset.t === 'posts') loadPosts();
+  if (b.dataset.t === 'amb') loadAmb();
+  if (b.dataset.t === 'trips') loadTrips();
+}));
+
+// Places
+let PLACES = [];
+async function loadPlaces() {
+  const q = $('pFilter').value.trim();
+  const j = await api('GET', '/api/admin/places' + (q ? '?q=' + encodeURIComponent(q) : ''));
+  PLACES = j.places;
+  $('pRows').innerHTML = PLACES.map((p, i) => `<tr><td>${esc(p.name)}</td><td>${esc(p.category)}</td><td>${esc(p.area)}</td><td>${p.lat}, ${p.lng}</td><td><button class="b-red" onclick="delPlace(${i})">Delete</button></td></tr>`).join('') || '<tr><td colspan="5">No places yet.</td></tr>';
+}
+function clearPlace() { ['pName','pArea','pPhone','pAlias','pLat','pLng'].forEach((id) => ($(id).value = '')); if (marker) { marker.remove(); marker = null; } }
+async function savePlace() {
+  try {
+    await api('POST', '/api/admin/places', { name: $('pName').value, category: $('pCat').value, area: $('pArea').value, phone: $('pPhone').value, aliases: $('pAlias').value, lat: $('pLat').value, lng: $('pLng').value });
+    say('Place saved.'); clearPlace(); loadPlaces();
+  } catch (e) { say(e.message, true); }
+}
+async function delPlace(i) { if (!confirm('Delete place?')) return; try { await api('DELETE', '/api/admin/places/' + encodeURIComponent(PLACES[i].id)); loadPlaces(); } catch (e) { say(e.message, true); } }
+
+// Police posts
+let POSTS = [];
+async function loadPosts() {
+  const j = await api('GET', '/api/admin/posts'); POSTS = j.posts;
+  $('sRows').innerHTML = POSTS.map((p, i) => `<tr><td>${esc(p.name)}</td><td>${esc(p.officer)}</td><td>${p.radius} m</td><td>${p.lat}, ${p.lng}</td><td><span class="pill ${p.online ? 'on-pill' : 'off-pill'}">${p.online ? 'online' : 'offline'}</span></td><td><button class="b-red" onclick="delPost(${i})">Delete</button></td></tr>`).join('') || '<tr><td colspan="6">No posts yet.</td></tr>';
+}
+function clearPost() { ['sId','sName','sOfficer','sArea','sLat','sLng'].forEach((id) => ($(id).value = '')); }
+async function savePost() { try { await api('POST', '/api/admin/posts', { name: $('sName').value, officer: $('sOfficer').value, area: $('sArea').value, radius: $('sRadius').value, lat: $('sLat').value, lng: $('sLng').value }); say('Post saved.'); clearPost(); loadPosts(); } catch (e) { say(e.message, true); } }
+async function delPost(i) { if (!confirm('Delete post?')) return; try { await api('DELETE', '/api/admin/posts/' + encodeURIComponent(POSTS[i].id)); loadPosts(); } catch (e) { say(e.message, true); } }
+
+// Ambulances
+let AMBS = [];
+async function loadAmb() {
+  const j = await api('GET', '/api/admin/ambulances'); AMBS = j.ambulances;
+  $('aRows').innerHTML = AMBS.map((a, i) => `<tr><td>${esc(a.id)}</td><td>${esc(a.driverName)}</td><td>${esc(a.phone)}</td><td>${esc(a.hospital)}</td><td>${a.active === false ? 'Blocked' : 'Active'}</td><td><button class="b-red" onclick="delAmb(${i})">Delete</button></td></tr>`).join('') || '<tr><td colspan="6">No ambulances yet.</td></tr>';
+}
+function clearAmb() { ['aId','aDriver','aPhone','aHosp'].forEach((id) => ($(id).value = '')); }
+async function saveAmb() { try { await api('POST', '/api/admin/ambulances', { id: $('aId').value, driverName: $('aDriver').value, phone: $('aPhone').value, hospital: $('aHosp').value, active: $('aActive').value }); say('Ambulance saved.'); clearAmb(); loadAmb(); } catch (e) { say(e.message, true); } }
+async function delAmb(i) { if (!confirm('Delete ambulance?')) return; try { await api('DELETE', '/api/admin/ambulances/' + encodeURIComponent(AMBS[i].id)); loadAmb(); } catch (e) { say(e.message, true); } }
+
+// Trips
+async function loadTrips() {
+  const j = await api('GET', '/api/admin/trips');
+  const fmt = (t) => new Date(t).toLocaleString();
+  $('tRows').innerHTML = j.trips.map((t) => `<tr><td>${fmt(t.startedAt)}</td><td>${esc(t.ambulanceId)}</td><td>${esc(t.driverName)}</td><td>${esc(t.destination)}</td><td>${(t.distance / 1000).toFixed(1)} km</td><td>${esc(t.status)}</td></tr>`).join('') || '<tr><td colspan="6">No trips yet.</td></tr>';
+}
+
+const saved = sessionStorage.getItem('adminCode');
+if (saved) { $('code').value = saved; login(); }
+$('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+</script>
+</body>
+</html>
